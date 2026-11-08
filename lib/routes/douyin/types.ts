@@ -787,3 +787,47 @@ export interface PostData {
     post_serial: number;
     replace_series_cover: number;
 }
+
+/**
+ * Data returned by the mobile share page (`iesdouyin.com/share/user/<uid>`).
+ * It only exposes a small subset of the desktop payload: no `create_time`, no `play_addr`
+ * and no `author` block, so the feed has to derive those from other sources.
+ */
+export interface ShareAweme {
+    aweme_id: string;
+    desc?: string;
+    video?: {
+        cover?: { url_list?: string[] };
+        origin_cover?: { url_list?: string[] };
+        duration?: number;
+        bit_rate?: Array<{ play_addr?: { url_list?: string[] } }>;
+    };
+    statistics?: { digg_count?: number };
+    video_tag?: Array<{ tag_name: string }>;
+}
+
+export interface SharePostData {
+    status_code: number;
+    aweme_list: ShareAweme[];
+    has_more?: number;
+    max_cursor?: number;
+    min_cursor?: number;
+    extra?: { logid?: string; now?: number };
+}
+
+/** Subset of `window._ROUTER_DATA` injected by the mobile share page. */
+export interface ShareRouterData {
+    loaderData?: Record<
+        string,
+        {
+            userInfoRes?: {
+                status_code?: number;
+                user_info?: {
+                    nickname?: string;
+                    signature?: string;
+                    avatar_thumb?: { url_list?: string[] };
+                };
+            };
+        } | null
+    >;
+}

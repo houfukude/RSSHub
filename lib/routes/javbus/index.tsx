@@ -10,6 +10,7 @@ import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import { getSubPath } from '@/utils/common-utils';
 import got from '@/utils/got';
+import logger from '@/utils/logger';
 import { parseDate } from '@/utils/parse-date';
 import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 import { getRouteLimit } from '@/utils/route-limit';
@@ -95,6 +96,8 @@ async function handler(ctx) {
 
     const headers = {
         'accept-language': 'zh-CN',
+        // Without a referer the site answers with its age verification page instead of the list.
+        referer: `${sourceRootUrl}/`,
     };
 
     const response = await got({
@@ -106,7 +109,7 @@ async function handler(ctx) {
     const $ = load(response.data);
 
     let items = $('.movie-box')
-        .slice(0, getRouteLimit(ctx, 50))
+        .slice(0, getRouteLimit(ctx, 20))
         .toArray()
         .map((item): DataItem => {
             const $item = $(item);
@@ -117,112 +120,121 @@ async function handler(ctx) {
                 guid: $item.find('date').first().text(),
                 // This is a calendar release date, represented at UTC midnight.
                 pubDate: date && Number.isFinite(parseDate(date, 'YYYY-MM-DD', true).getTime()) ? parseDateInTimezone(date, 0) : undefined,
-                title: '',
+                // Kept as a fallback title in case the detail page cannot be fetched.
+                title: $item.find('img').attr('title') ?? '',
             };
         });
 
     items = await pMap(
         items,
         async (item) => {
-            const cached = await cache.tryGet(item.link!, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                    headers,
-                });
-
-                const content = load(detailResponse.data);
-
-                content('.genre').last().parent().remove();
-                content('input[type="checkbox"], button').remove();
-
-                const stars = content('.avatar-box span')
-                    .toArray()
-                    .map((s) => content(s).text());
-
-                const cacheIn = {
-                    author: stars.join(', '),
-                    title: content('h3').text(),
-                    category: [
-                        ...content('.genre label')
-                            .toArray()
-                            .map((c) => content(c).text()),
-                        ...stars,
-                    ],
-                    info: content('.row.movie').html(),
-                    thumbs: content('.sample-box')
-                        .toArray()
-                        .map((i) => {
-                            const thumbSrc = content(i).attr('href');
-                            return thumbSrc!.startsWith('http') ? thumbSrc : `${sourceRootUrl}${thumbSrc}`;
-                        }),
-                };
-
-                let magnets;
-                let selectedHasSubtitles = false;
-
-                // To fetch magnets.
-
-                try {
-                    const matches = detailResponse.data.match(/var gid = (\d+);[\s\S]*var uc = (\d+);[\s\S]*var img = '(.*)';/);
-
-                    const magnetResponse = await got({
+            try {
+                const cached = await cache.tryGet(item.link!, async () => {
+                    const detailResponse = await got({
                         method: 'get',
-                        url: `${sourceRootUrl}/ajax/uncledatoolsbyajax.php`,
-                        searchParams: {
-                            gid: matches[1],
-                            lang: 'zh',
-                            img: matches[3],
-                            uc: matches[2],
-                            floor: 800,
-                        },
-                        headers: {
-                            Referer: item.link,
-                        },
+                        url: item.link,
+                        headers,
                     });
 
-                    const content = load(`<table>${magnetResponse.data}</table>`);
+                    const content = load(detailResponse.data);
 
-                    magnets = content('tr')
+                    content('.genre').last().parent().remove();
+                    content('input[type="checkbox"], button').remove();
+
+                    const stars = content('.avatar-box span')
                         .toArray()
-                        .map((tr) => {
-                            const row = content(tr);
-                            const td = row.find('a[href]');
+                        .map((s) => content(s).text());
 
-                            return {
-                                title: td.first().text().trim(),
-                                link: td.attr('href'),
-                                size: td.eq(1).text().trim(),
-                                date: td.last().text().trim(),
-                                score: row.find('a').length ** 8 * toSize(td.eq(1).text().trim()),
-                                hasSubtitles: row.find('a[title="包含字幕的磁力連結"]').length > 0,
-                            };
+                    const cacheIn = {
+                        author: stars.join(', '),
+                        title: content('h3').text(),
+                        category: [
+                            ...content('.genre label')
+                                .toArray()
+                                .map((c) => content(c).text()),
+                            ...stars,
+                        ],
+                        info: content('.row.movie').html(),
+                        thumbs: content('.sample-box')
+                            .toArray()
+                            .map((i) => {
+                                const thumbSrc = content(i).attr('href');
+                                return thumbSrc!.startsWith('http') ? thumbSrc : `${sourceRootUrl}${thumbSrc}`;
+                            }),
+                    };
+
+                    let magnets;
+                    let selectedHasSubtitles = false;
+
+                    // To fetch magnets.
+
+                    try {
+                        const matches = detailResponse.data.match(/var gid = (\d+);[\s\S]*var uc = (\d+);[\s\S]*var img = '(.*)';/);
+
+                        const magnetResponse = await got({
+                            method: 'get',
+                            url: `${sourceRootUrl}/ajax/uncledatoolsbyajax.php`,
+                            searchParams: {
+                                gid: matches[1],
+                                lang: 'zh',
+                                img: matches[3],
+                                uc: matches[2],
+                                floor: 800,
+                            },
+                            headers: {
+                                Referer: item.link,
+                            },
                         });
 
-                    const selectedMagnet = magnets.toSorted((a, b) => b.score - a.score)[0];
-                    if (selectedMagnet) {
-                        item.enclosure_url = selectedMagnet.link;
-                        item.enclosure_type = 'application/x-bittorrent';
-                        selectedHasSubtitles = selectedMagnet.hasSubtitles;
+                        const content = load(`<table>${magnetResponse.data}</table>`);
+
+                        magnets = content('tr')
+                            .toArray()
+                            .map((tr) => {
+                                const row = content(tr);
+                                const td = row.find('a[href]');
+
+                                return {
+                                    title: td.first().text().trim(),
+                                    link: td.attr('href'),
+                                    size: td.eq(1).text().trim(),
+                                    date: td.last().text().trim(),
+                                    score: row.find('a').length ** 8 * toSize(td.eq(1).text().trim()),
+                                    hasSubtitles: row.find('a[title="包含字幕的磁力連結"]').length > 0,
+                                };
+                            });
+
+                        const selectedMagnet = magnets.toSorted((a, b) => b.score - a.score)[0];
+                        if (selectedMagnet) {
+                            item.enclosure_url = selectedMagnet.link;
+                            item.enclosure_type = 'application/x-bittorrent';
+                            selectedHasSubtitles = selectedMagnet.hasSubtitles;
+                        }
+                    } catch {
+                        // no-empty
                     }
-                } catch {
-                    // no-empty
-                }
 
-                item.author = cacheIn.author;
-                item.title = `${selectedHasSubtitles ? '[中字] ' : ''}${cacheIn.title}`;
-                item.category = selectedHasSubtitles ? [...new Set([...cacheIn.category, '中文字幕'])] : cacheIn.category;
-                item.description = renderDescription({
-                    info: cacheIn.info,
-                    thumbs: cacheIn.thumbs,
-                    magnets,
+                    item.author = cacheIn.author;
+                    item.title = `${selectedHasSubtitles ? '[中字] ' : ''}${cacheIn.title}`;
+                    item.category = selectedHasSubtitles ? [...new Set([...cacheIn.category, '中文字幕'])] : cacheIn.category;
+                    item.description = renderDescription({
+                        info: cacheIn.info,
+                        thumbs: cacheIn.thumbs,
+                        magnets,
+                    });
+
+                    return item;
                 });
-
+                return { ...cached, pubDate: item.pubDate };
+            } catch (error) {
+                // The site rate-limits bursts (HTTP 429), so a single failing item must not
+                // fail the whole feed. Degrade to the list-page metadata; the next request
+                // retries this item and refills the cache.
+                logger.warn(`javbus: failed to load ${item.link}, falling back to list metadata: ${error}`);
                 return item;
-            });
-            return { ...cached, pubDate: item.pubDate };
+            }
         },
-        { concurrency: 3 }
+        { concurrency: 2 }
     );
 
     const title = $('head title').text();

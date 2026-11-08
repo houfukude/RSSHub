@@ -37,11 +37,12 @@ tsdown-vercel.config.ts
 vitest.config.ts
 vercel.json
 
-# git but keep the git commit hash
-.git/logs
-.git/index
-.git/info
-.git/hooks
+# git metadata is not needed for the build: this fork's images report gitHash
+# "unknown" anyway, so keeping the 2.1 GB object store only inflated the context.
+.git
 
 # rsshub auxiliary files
 lib/routes/**/radar.js
+
+# tmp 
+tmp

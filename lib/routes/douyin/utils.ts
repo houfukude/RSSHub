@@ -50,8 +50,8 @@ const getOriginAvatar = (url) =>
 
 export { getOriginAvatar, proxyVideo, resolveUrl, templates };
 
-export const getApiResponse = async (page: Page, pageUrl: string, apiPath: string) => {
-    const [response] = await Promise.all([page.waitForResponse((response) => response.url().includes(apiPath), { timeout: config.requestTimeout }), page.goto(pageUrl, { waitUntil: 'domcontentloaded' })]);
+export const getApiResponse = async (page: Page, pageUrl: string, apiPath: string, timeout = config.requestTimeout) => {
+    const [response] = await Promise.all([page.waitForResponse((response) => response.url().includes(apiPath), { timeout }), page.goto(pageUrl, { waitUntil: 'domcontentloaded' })]);
     if (!response.ok()) {
         throw new Error(`Douyin API returned HTTP ${response.status()}. Anonymous access may be blocked by the source site.`);
     }

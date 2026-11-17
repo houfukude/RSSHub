@@ -815,6 +815,17 @@ export interface SharePostData {
     extra?: { logid?: string; now?: number };
 }
 
+/**
+ * User block shared by `_ROUTER_DATA` on the share page and by `/web/api/v2/user/info/`.
+ * `aweme_count` is the only field the route relies on to tell an empty account apart.
+ */
+export interface ShareUserInfo {
+    nickname?: string;
+    signature?: string;
+    aweme_count?: number;
+    avatar_thumb?: { url_list?: string[] };
+}
+
 /** Subset of `window._ROUTER_DATA` injected by the mobile share page. */
 export interface ShareRouterData {
     loaderData?: Record<
@@ -822,12 +833,14 @@ export interface ShareRouterData {
         {
             userInfoRes?: {
                 status_code?: number;
-                user_info?: {
-                    nickname?: string;
-                    signature?: string;
-                    avatar_thumb?: { url_list?: string[] };
-                };
+                user_info?: ShareUserInfo;
             };
         } | null
     >;
+}
+
+/** Response of `https://www.iesdouyin.com/web/api/v2/user/info/?sec_uid=<uid>`. */
+export interface UserInfoData {
+    status_code?: number;
+    user_info?: ShareUserInfo;
 }
